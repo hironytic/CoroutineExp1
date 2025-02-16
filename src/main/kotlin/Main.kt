@@ -18,6 +18,8 @@ const val NUM_COMPUTE = 100_000 // いくつの処理を実行するか
 
 const val FIXED_THREAD_POOL_SIZE = 512 // Fixedスレッドプールの数
 
+const val NUM_TRIAL = 1 // 全体を何回やってみるか
+
 // 指定されたループ回数だけ、処理を実行する
 // その間に、REST_COUNT回数だけ休憩を取る
 // 1回の休憩は REST_MILLIS ミリ秒
@@ -160,13 +162,16 @@ fun measure(label: String, block: () -> Unit) {
 }
 
 fun main() {
-    val loopCounts = (0 ..< NUM_COMPUTE).map {
-        COMPUTE_LOOP_COUNT_MIN + (Math.random() * (COMPUTE_LOOP_COUNT_MAX - COMPUTE_LOOP_COUNT_MIN)).toInt()
+    repeat(NUM_TRIAL) {
+        val loopCounts = (0..<NUM_COMPUTE).map {
+            COMPUTE_LOOP_COUNT_MIN + (Math.random() * (COMPUTE_LOOP_COUNT_MAX - COMPUTE_LOOP_COUNT_MIN)).toInt()
+        }
+        experiment1(loopCounts)
+        experiment2(loopCounts)
+        experiment3(loopCounts)
+        experiment4(loopCounts)
+        experiment5(loopCounts)
+        experiment6(loopCounts)
+        println("--------------------------------")
     }
-    experiment1(loopCounts)
-    experiment2(loopCounts)
-    experiment3(loopCounts)
-    experiment4(loopCounts)
-    experiment5(loopCounts)
-    experiment6(loopCounts)
 }
