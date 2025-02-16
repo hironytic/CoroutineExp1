@@ -18,12 +18,12 @@ const val NUM_COMPUTE = 100_000 // いくつの処理を実行するか
 
 const val FIXED_THREAD_POOL_SIZE = 512 // Fixedスレッドプールの数
 
-const val NUM_TRIAL = 5 // 全体を何回やってみるか
+const val NUM_TRIAL = 1 // 全体を何回やってみるか
 
 // 指定されたループ回数だけ、処理を実行する
 // その間に、REST_COUNT回数だけ休憩を取る
 // 1回の休憩は REST_MILLIS ミリ秒
-inline fun compute(loopCount: Int, rest: () -> Unit) {
+inline fun compute(loopCount: Int, idSet: MutableSet<Long>, rest: () -> Unit) {
     val restTiming = loopCount / REST_COUNT
     var count = 0
     var restSum = 0
@@ -37,6 +37,10 @@ inline fun compute(loopCount: Int, rest: () -> Unit) {
             rest()
             val restEnd = Instant.now()
             restSum += Duration.between(restStart, restEnd).toMillis().toInt()
+            
+            synchronized(idSet) {
+                idSet.add(Thread.currentThread().id)
+            }
         }
     }
     
@@ -47,15 +51,15 @@ inline fun compute(loopCount: Int, rest: () -> Unit) {
 }
 
 // Thread.sleep で休憩するブロッキング関数
-fun blockingCompute(loopCount: Int) {
-    compute(loopCount) {
+fun blockingCompute(loopCount: Int, idSet: MutableSet<Long>) {
+    compute(loopCount, idSet) {
         Thread.sleep(REST_MILLIS)
     }
 }
 
 // delay で休憩するサスペンド関数
-suspend fun suspendableCompute(loopCount: Int) {
-    compute(loopCount) {
+suspend fun suspendableCompute(loopCount: Int, idSet: MutableSet<Long>) {
+    compute(loopCount, idSet) {
         delay(REST_MILLIS)
     }
 }
@@ -63,17 +67,19 @@ suspend fun suspendableCompute(loopCount: Int) {
 // スレッドプールを使わず、シンプルにスレッドで実行
 fun experiment1(loopCounts: List<Int>) {
     println("[Simple Thread]")
+    val idSet = mutableSetOf<Long>()
     measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         for (i in 0 ..< NUM_COMPUTE) {
             Thread {
-                blockingCompute(loopCounts[i])
+                blockingCompute(loopCounts[i], idSet)
                 latch.countDown()
             }.start()
         }
         println("${latch.count} jobs left.")
         latch.await()
     }
+    println("${idSet.count()} threads are used.")
 }
 
 // スレッドプールを使って実行
@@ -82,17 +88,19 @@ fun experiment1(loopCounts: List<Int>) {
 fun experiment2(loopCounts: List<Int>) {
     val exec = Executors.newCachedThreadPool()
     println("[Cached Thread Pool]")
+    val idSet = mutableSetOf<Long>()
     measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         for (i in 0 ..< NUM_COMPUTE) {
             exec.submit {
-                blockingCompute(loopCounts[i])
+                blockingCompute(loopCounts[i], idSet)
                 latch.countDown()
             }
         }
         println("${latch.count} jobs left.")
         latch.await()
     }
+    println("${idSet.count()} threads are used.")
     exec.shutdown()
 }
 
@@ -100,69 +108,77 @@ fun experiment2(loopCounts: List<Int>) {
 fun experiment3(loopCounts: List<Int>) {
     val exec = Executors.newFixedThreadPool(FIXED_THREAD_POOL_SIZE)
     println("[Fixed Thread Pool]")
+    val idSet = mutableSetOf<Long>()
     measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         for (i in 0 ..< NUM_COMPUTE) {
             exec.submit {
-                blockingCompute(loopCounts[i])
+                blockingCompute(loopCounts[i], idSet)
                 latch.countDown()
             }
         }
         println("${latch.count} jobs left.")
         latch.await()
     }
+    println("${idSet.count()} threads are used.")
     exec.shutdown()
 }
 
 // コルーチンを引数なしのrunBlockingで実行
 fun experiment4(loopCounts: List<Int>) {
     println("[Coroutine Empty Dispatcher]")
+    val idSet = mutableSetOf<Long>()
     measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking {
             for (i in 0 ..< NUM_COMPUTE) {
                 launch {
-                    suspendableCompute(loopCounts[i])
+                    suspendableCompute(loopCounts[i], idSet)
                     latch.countDown()
                 }
             }
             println("${latch.count} jobs left.")
         }
     }
+    println("${idSet.count()} threads are used.")
 }
 
 // コルーチンをDispatchers.DefaultのrunBlockingで実行
 fun experiment5(loopCounts: List<Int>) {
     println("[Coroutine Default Dispatcher]")
+    val idSet = mutableSetOf<Long>()
     measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking(Dispatchers.Default) {
             for (i in 0 ..< NUM_COMPUTE) {
                 launch {
-                    suspendableCompute(loopCounts[i])
+                    suspendableCompute(loopCounts[i], idSet)
                     latch.countDown()
                 }
             }
             println("${latch.count} jobs left.")
         }
     }
+    println("${idSet.count()} threads are used.")
 }
 
 // コルーチンをDispatchers.IOのrunBlockingで実行
 fun experiment6(loopCounts: List<Int>) {
     println("[Coroutine IO Dispatcher]")
+    val idSet = mutableSetOf<Long>()
     measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking(Dispatchers.IO) {
             for (i in 0 ..< NUM_COMPUTE) {
                 launch {
-                    suspendableCompute(loopCounts[i])
+                    suspendableCompute(loopCounts[i], idSet)
                     latch.countDown()
                 }
             }
             println("${latch.count} jobs left.")
         }
     }
+    println("${idSet.count()} threads are used.")
 }
 
 fun measure(block: () -> Unit) {
