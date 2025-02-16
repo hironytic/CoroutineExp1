@@ -9,7 +9,7 @@ import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 
-const val COMPUTE_LOOP_COUNT_MIN =   5_000  // 1処理のループ回数の最小値
+const val COMPUTE_LOOP_COUNT_MIN =  10_000  // 1処理のループ回数の最小値
 const val COMPUTE_LOOP_COUNT_MAX = 100_000  // 1処理のループ回数の最大値
 const val REST_COUNT = 20 // 1処理の間に、これだけの回数だけ休憩を取る
 const val REST_MILLIS = 10L // 1回の休憩の休む時間
@@ -18,7 +18,7 @@ const val NUM_COMPUTE = 100_000 // いくつの処理を実行するか
 
 const val FIXED_THREAD_POOL_SIZE = 512 // Fixedスレッドプールの数
 
-const val NUM_TRIAL = 1 // 全体を何回やってみるか
+const val NUM_TRIAL = 5 // 全体を何回やってみるか
 
 // 指定されたループ回数だけ、処理を実行する
 // その間に、REST_COUNT回数だけ休憩を取る
@@ -62,7 +62,8 @@ suspend fun suspendableCompute(loopCount: Int) {
 
 // スレッドプールを使わず、シンプルにスレッドで実行
 fun experiment1(loopCounts: List<Int>) {
-    measure("Simple Thread") {
+    println("[Simple Thread]")
+    measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         for (i in 0 ..< NUM_COMPUTE) {
             Thread {
@@ -70,15 +71,18 @@ fun experiment1(loopCounts: List<Int>) {
                 latch.countDown()
             }.start()
         }
+        println("${latch.count} jobs left.")
         latch.await()
     }
 }
 
 // スレッドプールを使って実行
 // でも一気に処理を投げるので、プールが有効に活用されることはなさそう
+// …と思ったのだが、処理を投げているうちに前に投げたスレッドが終わったらそれが使われているよう
 fun experiment2(loopCounts: List<Int>) {
     val exec = Executors.newCachedThreadPool()
-    measure("Cached Thread Pool") {
+    println("[Cached Thread Pool]")
+    measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         for (i in 0 ..< NUM_COMPUTE) {
             exec.submit {
@@ -86,6 +90,7 @@ fun experiment2(loopCounts: List<Int>) {
                 latch.countDown()
             }
         }
+        println("${latch.count} jobs left.")
         latch.await()
     }
     exec.shutdown()
@@ -94,7 +99,8 @@ fun experiment2(loopCounts: List<Int>) {
 // 上限のあるスレッドプールを使って実行
 fun experiment3(loopCounts: List<Int>) {
     val exec = Executors.newFixedThreadPool(FIXED_THREAD_POOL_SIZE)
-    measure("Fixed Thread Pool") {
+    println("[Fixed Thread Pool]")
+    measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         for (i in 0 ..< NUM_COMPUTE) {
             exec.submit {
@@ -102,6 +108,7 @@ fun experiment3(loopCounts: List<Int>) {
                 latch.countDown()
             }
         }
+        println("${latch.count} jobs left.")
         latch.await()
     }
     exec.shutdown()
@@ -109,7 +116,8 @@ fun experiment3(loopCounts: List<Int>) {
 
 // コルーチンを引数なしのrunBlockingで実行
 fun experiment4(loopCounts: List<Int>) {
-    measure("Coroutine Empty Dispatcher") {
+    println("[Coroutine Empty Dispatcher]")
+    measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking {
             for (i in 0 ..< NUM_COMPUTE) {
@@ -118,13 +126,15 @@ fun experiment4(loopCounts: List<Int>) {
                     latch.countDown()
                 }
             }
+            println("${latch.count} jobs left.")
         }
     }
 }
 
 // コルーチンをDispatchers.DefaultのrunBlockingで実行
 fun experiment5(loopCounts: List<Int>) {
-    measure("Coroutine Default Dispatcher") {
+    println("[Coroutine Default Dispatcher]")
+    measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking(Dispatchers.Default) {
             for (i in 0 ..< NUM_COMPUTE) {
@@ -133,13 +143,15 @@ fun experiment5(loopCounts: List<Int>) {
                     latch.countDown()
                 }
             }
+            println("${latch.count} jobs left.")
         }
     }
 }
 
 // コルーチンをDispatchers.IOのrunBlockingで実行
 fun experiment6(loopCounts: List<Int>) {
-    measure("Coroutine IO Dispatcher") {
+    println("[Coroutine IO Dispatcher]")
+    measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking(Dispatchers.IO) {
             for (i in 0 ..< NUM_COMPUTE) {
@@ -148,16 +160,17 @@ fun experiment6(loopCounts: List<Int>) {
                     latch.countDown()
                 }
             }
+            println("${latch.count} jobs left.")
         }
     }
 }
 
-fun measure(label: String, block: () -> Unit) {
+fun measure(block: () -> Unit) {
     val startInstant = Instant.now()
     block()
     val endInstant = Instant.now()
     Duration.between(startInstant, endInstant).also { duration ->
-        println("[$label] Time taken: ${duration.toMillis()} ms")
+        println("Time taken: ${duration.toMillis()} ms")
     }
 }
 
