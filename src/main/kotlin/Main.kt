@@ -18,7 +18,7 @@ const val NUM_COMPUTE = 100_000 // いくつの処理を実行するか
 
 const val FIXED_THREAD_POOL_SIZE = 512 // Fixedスレッドプールの数
 
-const val NUM_TRIAL = 1 // 全体を何回やってみるか
+const val NUM_TRIAL = 5 // 全体を何回やってみるか
 
 // 指定されたループ回数だけ、処理を実行する
 // その間に、REST_COUNT回数だけ休憩を取る
@@ -65,10 +65,9 @@ suspend fun suspendableCompute(loopCount: Int, idSet: MutableSet<Long>) {
 }
 
 // スレッドプールを使わず、シンプルにスレッドで実行
-fun experiment1(loopCounts: List<Int>) {
+fun experiment1(loopCounts: List<Int>) = CollectedData().apply {
     println("[Simple Thread]")
-    val idSet = mutableSetOf<Long>()
-    measure {
+    timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         for (i in 0 ..< NUM_COMPUTE) {
             Thread {
@@ -76,20 +75,19 @@ fun experiment1(loopCounts: List<Int>) {
                 latch.countDown()
             }.start()
         }
-        println("${latch.count} jobs left.")
+        jobsLeft = latch.count
         latch.await()
     }
-    println("${idSet.count()} threads are used.")
+    printResult()
 }
 
 // スレッドプールを使って実行
 // でも一気に処理を投げるので、プールが有効に活用されることはなさそう
 // …と思ったのだが、処理を投げているうちに前に投げたスレッドが終わったらそれが使われているよう
-fun experiment2(loopCounts: List<Int>) {
-    val exec = Executors.newCachedThreadPool()
+fun experiment2(loopCounts: List<Int>) = CollectedData().apply {
     println("[Cached Thread Pool]")
-    val idSet = mutableSetOf<Long>()
-    measure {
+    val exec = Executors.newCachedThreadPool()
+    timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         for (i in 0 ..< NUM_COMPUTE) {
             exec.submit {
@@ -97,19 +95,17 @@ fun experiment2(loopCounts: List<Int>) {
                 latch.countDown()
             }
         }
-        println("${latch.count} jobs left.")
+        jobsLeft = latch.count
         latch.await()
     }
-    println("${idSet.count()} threads are used.")
-    exec.shutdown()
+    printResult()
 }
 
 // 上限のあるスレッドプールを使って実行
-fun experiment3(loopCounts: List<Int>) {
-    val exec = Executors.newFixedThreadPool(FIXED_THREAD_POOL_SIZE)
+fun experiment3(loopCounts: List<Int>) = CollectedData().apply {
     println("[Fixed Thread Pool]")
-    val idSet = mutableSetOf<Long>()
-    measure {
+    val exec = Executors.newFixedThreadPool(FIXED_THREAD_POOL_SIZE)
+    timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         for (i in 0 ..< NUM_COMPUTE) {
             exec.submit {
@@ -117,18 +113,17 @@ fun experiment3(loopCounts: List<Int>) {
                 latch.countDown()
             }
         }
-        println("${latch.count} jobs left.")
+        jobsLeft = latch.count
         latch.await()
     }
-    println("${idSet.count()} threads are used.")
     exec.shutdown()
+    printResult()
 }
 
 // コルーチンを引数なしのrunBlockingで実行
-fun experiment4(loopCounts: List<Int>) {
+fun experiment4(loopCounts: List<Int>) = CollectedData().apply {
     println("[Coroutine Empty Dispatcher]")
-    val idSet = mutableSetOf<Long>()
-    measure {
+    timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking {
             for (i in 0 ..< NUM_COMPUTE) {
@@ -137,17 +132,16 @@ fun experiment4(loopCounts: List<Int>) {
                     latch.countDown()
                 }
             }
-            println("${latch.count} jobs left.")
+            jobsLeft = latch.count
         }
     }
-    println("${idSet.count()} threads are used.")
+    printResult()
 }
 
 // コルーチンをDispatchers.DefaultのrunBlockingで実行
-fun experiment5(loopCounts: List<Int>) {
+fun experiment5(loopCounts: List<Int>) = CollectedData().apply {
     println("[Coroutine Default Dispatcher]")
-    val idSet = mutableSetOf<Long>()
-    measure {
+    timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking(Dispatchers.Default) {
             for (i in 0 ..< NUM_COMPUTE) {
@@ -156,17 +150,16 @@ fun experiment5(loopCounts: List<Int>) {
                     latch.countDown()
                 }
             }
-            println("${latch.count} jobs left.")
+            jobsLeft = latch.count
         }
     }
-    println("${idSet.count()} threads are used.")
+    printResult()
 }
 
 // コルーチンをDispatchers.IOのrunBlockingで実行
-fun experiment6(loopCounts: List<Int>) {
+fun experiment6(loopCounts: List<Int>) = CollectedData().apply {
     println("[Coroutine IO Dispatcher]")
-    val idSet = mutableSetOf<Long>()
-    measure {
+    timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking(Dispatchers.IO) {
             for (i in 0 ..< NUM_COMPUTE) {
@@ -175,32 +168,109 @@ fun experiment6(loopCounts: List<Int>) {
                     latch.countDown()
                 }
             }
-            println("${latch.count} jobs left.")
+            jobsLeft = latch.count
         }
     }
-    println("${idSet.count()} threads are used.")
+    printResult()
 }
 
-fun measure(block: () -> Unit) {
+// コルーチンをDispatchers.UnconfinedのrunBlockingで実行
+fun experiment7(loopCounts: List<Int>) = CollectedData().apply {
+    println("[Coroutine Unconfined Dispatcher]")
+    timeTaken = measure {
+        val latch = CountDownLatch(NUM_COMPUTE)
+        runBlocking(Dispatchers.Unconfined) {
+            for (i in 0 ..< NUM_COMPUTE) {
+                launch {
+                    suspendableCompute(loopCounts[i], idSet)
+                    latch.countDown()
+                }
+            }
+            jobsLeft = latch.count
+        }
+    }
+    printResult()
+}
+
+fun measure(block: () -> Unit): Long {
     val startInstant = Instant.now()
     block()
     val endInstant = Instant.now()
-    Duration.between(startInstant, endInstant).also { duration ->
-        println("Time taken: ${duration.toMillis()} ms")
+    return Duration.between(startInstant, endInstant).toMillis()
+}
+
+class CollectedData {
+    val idSet = mutableSetOf<Long>()
+    var jobsLeft: Long = 0
+    var timeTaken: Long = 0
+    
+    val numberOfThreads: Int
+        get() = idSet.size
+    
+    fun printResult() {
+        println("Jobs left: $jobsLeft")
+        println("Number of threads: $numberOfThreads")
+        println("Time taken: $timeTaken ms")
+    }
+}
+
+data class AverageData(
+    val averageJobsLeft: Double,
+    val averageNumberOfThreads: Double,
+    val averageTimeTaken: Double,
+)
+
+class MultipleTrialData(val label: String) {
+    val trials = mutableListOf<CollectedData>()
+    
+    fun getAverage(): AverageData {
+        val totalJobsLeft = trials.sumOf { it.jobsLeft }
+        val totalNumberOfThreads = trials.sumOf { it.numberOfThreads }
+        val totalTimeTaken = trials.sumOf { it.timeTaken }
+        return AverageData(
+            totalJobsLeft.toDouble() / trials.size,
+            totalNumberOfThreads.toDouble() / trials.size,
+            totalTimeTaken.toDouble() / trials.size,
+        )
     }
 }
 
 fun main() {
+    val resultData = listOf(
+        "Simple Thread",
+        "Cached Thread Pool",
+        "Fixed Thread Pool",
+        "Coroutine Empty Dispatcher",
+        "Coroutine Default Dispatcher",
+        "Coroutine IO Dispatcher",
+        "Coroutine Unconfined Dispatcher",
+    ).map { MultipleTrialData(it) }
+    
     repeat(NUM_TRIAL) {
         val loopCounts = (0..<NUM_COMPUTE).map {
             COMPUTE_LOOP_COUNT_MIN + (Math.random() * (COMPUTE_LOOP_COUNT_MAX - COMPUTE_LOOP_COUNT_MIN)).toInt()
         }
-        experiment1(loopCounts)
-        experiment2(loopCounts)
-        experiment3(loopCounts)
-        experiment4(loopCounts)
-        experiment5(loopCounts)
-        experiment6(loopCounts)
+        resultData[0].trials.add(experiment1(loopCounts))
+        resultData[1].trials.add(experiment2(loopCounts))
+        resultData[2].trials.add(experiment3(loopCounts))
+        resultData[3].trials.add(experiment4(loopCounts))
+        resultData[4].trials.add(experiment5(loopCounts))
+        resultData[5].trials.add(experiment6(loopCounts))
+        resultData[6].trials.add(experiment7(loopCounts))
         println("--------------------------------")
+    }
+    
+    print("Average:\t")
+    print("Jobs left\t")
+    print("Number of threads\t")
+    print("Time taken\t")
+    println()
+    for (result in resultData) {
+        val agerage = result.getAverage()
+        print("${result.label}\t")
+        print("${agerage.averageJobsLeft}\t")
+        print("${agerage.averageNumberOfThreads}\t")
+        print("${agerage.averageTimeTaken}\t")
+        println()
     }
 }
