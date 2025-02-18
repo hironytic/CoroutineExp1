@@ -24,6 +24,10 @@ const val NUM_TRIAL = 5 // 全体を何回やってみるか
 // その間に、REST_COUNT回数だけ休憩を取る
 // 1回の休憩は REST_MILLIS ミリ秒
 inline fun compute(loopCount: Int, idSet: MutableSet<Long>, rest: () -> Unit) {
+    synchronized(idSet) {
+        idSet.add(Thread.currentThread().id)
+    }
+    
     val restTiming = loopCount / REST_COUNT
     var count = 0
     var restSum = 0
