@@ -73,11 +73,13 @@ fun experiment1(loopCounts: List<Int>) = CollectedData().apply {
     println("[Simple Thread]")
     timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
-        for (i in 0 ..< NUM_COMPUTE) {
-            Thread {
-                blockingCompute(loopCounts[i], idSet)
-                latch.countDown()
-            }.start()
+        timeStartProcesses = measure {
+            for (i in 0 ..< NUM_COMPUTE) {
+                Thread {
+                    blockingCompute(loopCounts[i], idSet)
+                    latch.countDown()
+                }.start()
+            }
         }
         jobsLeft = latch.count
         latch.await()
@@ -93,10 +95,12 @@ fun experiment2(loopCounts: List<Int>) = CollectedData().apply {
     val exec = Executors.newCachedThreadPool()
     timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
-        for (i in 0 ..< NUM_COMPUTE) {
-            exec.submit {
-                blockingCompute(loopCounts[i], idSet)
-                latch.countDown()
+        timeStartProcesses = measure {
+            for (i in 0 ..< NUM_COMPUTE) {
+                exec.submit {
+                    blockingCompute(loopCounts[i], idSet)
+                    latch.countDown()
+                }
             }
         }
         jobsLeft = latch.count
@@ -111,12 +115,15 @@ fun experiment3(loopCounts: List<Int>) = CollectedData().apply {
     val exec = Executors.newFixedThreadPool(FIXED_THREAD_POOL_SIZE)
     timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
-        for (i in 0 ..< NUM_COMPUTE) {
-            exec.submit {
-                blockingCompute(loopCounts[i], idSet)
-                latch.countDown()
+        timeStartProcesses = measure {
+            for (i in 0 ..< NUM_COMPUTE) {
+                exec.submit {
+                    blockingCompute(loopCounts[i], idSet)
+                    latch.countDown()
+                }
             }
         }
+        
         jobsLeft = latch.count
         latch.await()
     }
@@ -130,10 +137,12 @@ fun experiment4(loopCounts: List<Int>) = CollectedData().apply {
     timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking {
-            for (i in 0 ..< NUM_COMPUTE) {
-                launch {
-                    suspendableCompute(loopCounts[i], idSet)
-                    latch.countDown()
+            timeStartProcesses = measure {
+                for (i in 0 ..< NUM_COMPUTE) {
+                    launch {
+                        suspendableCompute(loopCounts[i], idSet)
+                        latch.countDown()
+                    }
                 }
             }
             jobsLeft = latch.count
@@ -148,10 +157,12 @@ fun experiment5(loopCounts: List<Int>) = CollectedData().apply {
     timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking(Dispatchers.Default) {
-            for (i in 0 ..< NUM_COMPUTE) {
-                launch {
-                    suspendableCompute(loopCounts[i], idSet)
-                    latch.countDown()
+            timeStartProcesses = measure {
+                for (i in 0 ..< NUM_COMPUTE) {
+                    launch {
+                        suspendableCompute(loopCounts[i], idSet)
+                        latch.countDown()
+                    }
                 }
             }
             jobsLeft = latch.count
@@ -166,10 +177,12 @@ fun experiment6(loopCounts: List<Int>) = CollectedData().apply {
     timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking(Dispatchers.IO) {
-            for (i in 0 ..< NUM_COMPUTE) {
-                launch {
-                    suspendableCompute(loopCounts[i], idSet)
-                    latch.countDown()
+            timeStartProcesses = measure {
+                for (i in 0 ..< NUM_COMPUTE) {
+                    launch {
+                        suspendableCompute(loopCounts[i], idSet)
+                        latch.countDown()
+                    }
                 }
             }
             jobsLeft = latch.count
@@ -184,10 +197,12 @@ fun experiment7(loopCounts: List<Int>) = CollectedData().apply {
     timeTaken = measure {
         val latch = CountDownLatch(NUM_COMPUTE)
         runBlocking(Dispatchers.Unconfined) {
-            for (i in 0 ..< NUM_COMPUTE) {
-                launch {
-                    suspendableCompute(loopCounts[i], idSet)
-                    latch.countDown()
+            timeStartProcesses = measure {
+                for (i in 0 ..< NUM_COMPUTE) {
+                    launch {
+                        suspendableCompute(loopCounts[i], idSet)
+                        latch.countDown()
+                    }
                 }
             }
             jobsLeft = latch.count
@@ -206,21 +221,24 @@ fun measure(block: () -> Unit): Long {
 class CollectedData {
     val idSet = mutableSetOf<Long>()
     var jobsLeft: Long = 0
+    var timeStartProcesses: Long = 0
     var timeTaken: Long = 0
     
     val numberOfThreads: Int
         get() = idSet.size
     
     fun printResult() {
+        println("Time taken to start processes: $timeStartProcesses ms")
         println("Jobs left: $jobsLeft")
-        println("Number of threads: $numberOfThreads")
-        println("Time taken: $timeTaken ms")
+        println("Number of used threads: $numberOfThreads")
+        println("Time taken for all: $timeTaken ms")
     }
 }
 
 data class AverageData(
     val averageJobsLeft: Double,
     val averageNumberOfThreads: Double,
+    val averageTimeStartProcesses: Double,
     val averageTimeTaken: Double,
 )
 
@@ -230,10 +248,12 @@ class MultipleTrialData(val label: String) {
     fun getAverage(): AverageData {
         val totalJobsLeft = trials.sumOf { it.jobsLeft }
         val totalNumberOfThreads = trials.sumOf { it.numberOfThreads }
+        val totalTimeStartProcesses = trials.sumOf { it.timeStartProcesses }
         val totalTimeTaken = trials.sumOf { it.timeTaken }
         return AverageData(
             totalJobsLeft.toDouble() / trials.size,
             totalNumberOfThreads.toDouble() / trials.size,
+            totalTimeStartProcesses.toDouble() / trials.size,
             totalTimeTaken.toDouble() / trials.size,
         )
     }
@@ -251,27 +271,36 @@ fun main() {
     ).map { MultipleTrialData(it) }
     
     repeat(NUM_TRIAL) {
+        println("--------------------------------")
         val loopCounts = (0..<NUM_COMPUTE).map {
             COMPUTE_LOOP_COUNT_MIN + (Math.random() * (COMPUTE_LOOP_COUNT_MAX - COMPUTE_LOOP_COUNT_MIN)).toInt()
         }
         resultData[0].trials.add(experiment1(loopCounts))
+        println()
         resultData[1].trials.add(experiment2(loopCounts))
+        println()
         resultData[2].trials.add(experiment3(loopCounts))
+        println()
         resultData[3].trials.add(experiment4(loopCounts))
+        println()
         resultData[4].trials.add(experiment5(loopCounts))
+        println()
         resultData[5].trials.add(experiment6(loopCounts))
+        println()
         resultData[6].trials.add(experiment7(loopCounts))
-        println("--------------------------------")
+        println()
     }
     
     print("Average:\t")
+    print("Time taken to start\t")
     print("Jobs left\t")
-    print("Number of threads\t")
-    print("Time taken\t")
+    print("Number of used threads\t")
+    print("Time taken for all\t")
     println()
     for (result in resultData) {
         val agerage = result.getAverage()
         print("${result.label}\t")
+        print("${agerage.averageTimeStartProcesses}\t")
         print("${agerage.averageJobsLeft}\t")
         print("${agerage.averageNumberOfThreads}\t")
         print("${agerage.averageTimeTaken}\t")
